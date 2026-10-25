@@ -2,13 +2,15 @@
 
 ![thumbnail](GlimpseBeforeDeath.synScene/thumbnail.png)
 
+**[Open the live preview](https://rbambey.github.io/Shaders/GlimpseBeforeDeath/preview.html)** (runs in the browser; works best in Chrome on a computer with a decent GPU).
+
 The camera flies down a raymarched tunnel that twists and turns at random. The walls cycle through three looks:
 
 - pitted clay
 - fuzzy coral
 - wet, heartbeat-pulsing flesh
 
-Veins grow, writhe and respawn along the walls. An oil-slick thin-film sheen and a slow hue drift cover everything.
+Veins grow, writhe and respawn along the walls. Every so often a wave sweeps down the tunnel and turns them into strings of soap bubbles, which drift off the wall and then melt back into veins. An oil-slick thin-film sheen and a slow hue drift cover everything.
 
 ## Audio
 
@@ -28,6 +30,8 @@ Veins grow, writhe and respawn along the walls. An oil-slick thin-film sheen and
 | `tunnel_radius` | Tunnel width |
 | `vein_density` | Number of veins around the wall |
 | `vein_growth_speed` | How fast veins grow, shrink and respawn |
+| `bubbles` | How far veins turn into bubbles when the wave passes (0 = never) |
+| `bubble_rate` | How often the bubble wave comes around (1 = about every 20 s) |
 | `sheen` | Strength of the oil-slick film |
 | `hue_drift` | Speed of the palette's hue rotation (0 = fixed colors) |
 | `hue_shift` | Manual hue offset |
@@ -35,7 +39,7 @@ Veins grow, writhe and respawn along the walls. An oil-slick thin-film sheen and
 
 ## Performance
 
-The raymarch renders into a 960×540 buffer (`tunnelBuf`, the first pass). The final pass upscales it with a light sharpen. On an M1 Pro at 1080p output this runs at roughly 80–95 fps in Chrome.
+The raymarch renders into a 960×540 buffer (`tunnelBuf`, the first pass). The final pass upscales it with a light sharpen. On an M1 Pro at 1080p output this runs at roughly 50–85 fps in Chrome. It drops to about 35–45 fps while the veins are bubbles; set `bubbles` to 0 to avoid that cost.
 
 To trade quality for speed, change `WIDTH`/`HEIGHT` under `PASSES` in `scene.json`. For example, 1280×720 is sharper and 640×360 is faster.
 
@@ -60,4 +64,5 @@ Keys: H toggles the panel, Space pauses.
 
 ## Versions
 
+- **Unreleased**: veins periodically turn into soap bubbles (`bubbles`, `bubble_rate`).
 - **v1.0**: the first release, with the three looks, growing veins, oil-slick sheen, audio reactivity and half-res rendering.

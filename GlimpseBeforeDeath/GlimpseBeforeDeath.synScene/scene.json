@@ -46,6 +46,24 @@
 			"DESCRIPTION" : "How fast veins grow, shrink away and respawn."
 		},
 		{
+			"DEFAULT" : 1.0,
+			"DESCRIPTION" : "How far veins turn into bubbles when the bubble wave passes. 0 = never.",
+			"MAX" : 1.0,
+			"MIN" : 0.0,
+			"NAME" : "bubbles",
+			"TYPE" : "slider",
+			"UI_GROUP" : "veins"
+		},
+		{
+			"DEFAULT" : 1.0,
+			"DESCRIPTION" : "How often the veins-to-bubbles wave comes around (1 = about every 20 s).",
+			"MAX" : 4.0,
+			"MIN" : 0.0,
+			"NAME" : "bubble_rate",
+			"TYPE" : "slider",
+			"UI_GROUP" : "veins"
+		},
+		{
 			"NAME" : "sheen",
 			"TYPE" : "slider",
 			"DEFAULT" : 0.6,

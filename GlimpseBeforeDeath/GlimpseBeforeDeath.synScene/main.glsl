@@ -4,7 +4,7 @@
 //
 // Synesthesia inputs: TIME, RENDERSIZE, syn_BassLevel, syn_HighLevel, syn_BassTime
 // Controls (scene.json): speed, twist, tunnel_radius, vein_density,
-//   vein_growth_speed, sheen, hue_drift, hue_shift, audio_react
+//   vein_growth_speed, bubbles, bubble_rate, sheen, hue_drift, hue_shift, audio_react
 
 const float kTAU = 6.28318530718;
 
@@ -17,6 +17,7 @@ float gHigh;
 // Per-sample globals (written by map, read after the final map call)
 float gVein;    // 0 = wall, 1 = vein
 float gVeinId;
+float gBubble;  // how far the nearest vein has turned into bubbles
 float gContact; // distance to nearest vein (for contact shadows on the wall)
 float gBump;    // coral: 0 in the crevices, 1 at polyp tips
 float gRidge;   // flesh: 0 in the folds' valleys, 1 on their crests
@@ -134,7 +135,25 @@ float fleshDisp(float z, vec3 sp) {
 }
 
 // One layer of writhing veins lying on the wall, growing along z and respawning.
-float veinLayer(float r, float a, float z, float wallR, float N, float spiral, float seed, out float vid) {
+// 0 = veins, 1 = bubbles. The change sweeps down the tunnel as a wave, each vein slightly out of step.
+float bubbleAmount(float z, float h) {
+    float ph = gT * bubble_rate * 0.05 + z * 0.015 + h * 0.15;
+    return bubbles * smoothstep(0.35, 0.65, 0.5 + 0.5 * sin(ph * kTAU));
+}
+
+// Growth: each vein is split into segments of length L that grow from their start, then shrink away.
+// Returns (position within the segment, grown tip position, fade).
+const float L = 6.0;
+vec3 veinSegment(float zs, float idw, float seed) {
+    float seg = floor(zs / L);
+    float phase = fract(gT * vein_growth_speed * 0.15 + vhash21(vec2(idw + seed * 7.0, seg)));
+    float grow = smoothstep(0.0, 0.6, phase);
+    float fade = 1.0 - smoothstep(0.8, 1.0, phase);
+    return vec3(zs - seg * L, 0.5 + grow * (L - 1.0), fade);
+}
+
+float veinLayer(float r, float a, float z, float wallR, float N, float spiral, float seed,
+                out float vid, out float vbub) {
     float s = a / kTAU * N + z * spiral;
     float idw = mod(floor(s), N);
     float h = vhash11(idw * 17.31 + seed);
@@ -144,26 +163,65 @@ float veinLayer(float r, float a, float z, float wallR, float N, float spiral, f
               + 0.08 * sin(z * 3.1 - gT * 1.3 + h * 20.0);
     float du = (fract(s) - 0.5 - wob) * cellW;
 
-    // growth: each segment of length L grows from its start, then shrinks away
-    const float L = 6.0;
     float zs = z + h * L;
-    float seg = floor(zs / L);
-    float zl = zs - seg * L;
-    float phase = fract(gT * vein_growth_speed * 0.15 + vhash21(vec2(idw + seed * 7.0, seg)));
-    float grow = smoothstep(0.0, 0.6, phase);
-    float fade = 1.0 - smoothstep(0.8, 1.0, phase);
-    float tip = 0.5 + grow * (L - 1.0);
+    vec3 sg = veinSegment(zs, idw, seed);
+    float zl = sg.x;
+    float tip = sg.y;
+    float fade = sg.z;
     float dz = max(0.0, max(0.5 - zl, zl - tip));
 
     float rv = (0.035 + 0.045 * h) * fade * (1.0 + gBass * 0.8 * audio_react);
     rv *= 0.35 + 0.65 * smoothstep(0.0, 0.8, tip - zl);
 
+    // bubbles: the tube thins away while a string of beads swells out of it, drifts off
+    // the wall and flows along, then the beads shrink back into the regrowing vein
+    float bub = bubbleAmount(z, h);
+
     // some veins arch away from the wall
     float lift = 0.25 * pow(max(0.0, sin(z * 0.7 + h * 13.0 + gT * 0.4)), 2.0) * step(0.5, h);
     float dr = r - (wallR - rv * 0.5 - lift);
+    // tube radius goes slightly negative at full bubble so no zero-width line is left behind
+    float d = length(vec3(du, dr, dz)) - (rv * (1.0 - bub) - 0.01 * bub);
+
+    if (bub > 0.001) {
+        const float S = 0.34;                       // bead spacing
+        float laneAng = kTAU / N;
+        float zb = zs - gT * 0.2;
+        float bi = floor(zb / S);
+        // check this bead cell and the nearer neighbour, so rays don't step into a bead
+        // from the next cell over (which would land them inside it)
+        float nb = fract(zb / S) < 0.5 ? -1.0 : 1.0;
+        float dBeads = 1e5;
+        for (int k = 0; k < 2; k++) {
+            float bk = bi + (k == 0 ? 0.0 : nb);
+            float hb = vhash21(vec2(idw * 3.1 + seed, bk));
+            float zc = zb - (bk + 0.5) * S;         // offset from the bead centre along the vein
+            float zC = z - zc;                      // bead centre
+            // place the bead using the vein's path at its centre, so it stays round
+            float wobC = 0.28 * sin(zC * (0.9 + 0.8 * h) + gT * (0.6 + h) + h * kTAU)
+                       + 0.08 * sin(zC * 3.1 - gT * 1.3 + h * 20.0);
+            float liftC = 0.25 * pow(max(0.0, sin(zC * 0.7 + h * 13.0 + gT * 0.4)), 2.0) * step(0.5, h);
+            float drift = bub * (0.05 + 0.35 * hb);
+            // lateral distance as true arc length at this radius (bubbles float inward, where
+            // measuring along the wall would stretch them sideways)
+            float duC = (fract(s) - 0.5 - wobC - zc * spiral) * laneAng * r;
+            // a bead exists where the grown vein covers its centre (looked up in the centre's own segment)
+            vec3 sc = veinSegment(zs - zc, idw, seed);
+            float onVein = step(0.5, sc.x) * step(sc.x, sc.y);
+            float rb = (0.06 + 0.08 * hb) * sc.z * onVein * (1.0 + gBass * 0.8 * audio_react);
+            // stay inside this vein's lane and bead cell
+            float rc = wallR - 0.14 - liftC - drift;
+            rb = min(rb, min((0.5 - abs(wobC)) * laneAng * rc, 0.5 * S) - 0.01);
+            rb *= smoothstep(0.0, 0.6, bub);
+            float drb = r - (wallR - rb - liftC - drift);
+            dBeads = min(dBeads, length(vec3(duC, drb, zc)) - rb);
+        }
+        d = smin(d, dBeads, 0.03);
+    }
 
     vid = h;
-    return length(vec3(du, dr, dz)) - rv;
+    vbub = bub;
+    return d;
 }
 
 float map(vec3 p) {
@@ -187,12 +245,13 @@ float map(vec3 p) {
     // veins rest on a smoothed wall so they don't dive into every pit;
     // in coral mode they ride on top of the bumps instead of being swallowed
     float veinR = R - dot(w, vec3(0.12, 0.3, 0.16));
-    float id1, id2;
-    float v1 = veinLayer(r, a, p.z, veinR, floor(vein_density), 0.05, 1.0, id1);
-    float v2 = veinLayer(r, a, p.z, veinR, floor(vein_density * 0.7) + 2.0, -0.11, 5.0, id2);
-    float dv = min(v1, v2);
+    float id1, id2, b1, b2;
+    float v1 = veinLayer(r, a, p.z, veinR, floor(vein_density), 0.05, 1.0, id1, b1);
+    float v2 = veinLayer(r, a, p.z, veinR, floor(vein_density * 0.7) + 2.0, -0.11, 5.0, id2, b2);
+    float dv = smin(v1, v2, 0.04);   // overlapping bubbles / crossing veins fuse instead of seaming
 
     gVeinId = v1 < v2 ? id1 : id2;
+    gBubble = v1 < v2 ? b1 : b2;
     gVein = clamp(0.5 + 0.5 * (dWall - dv) / 0.006, 0.0, 1.0);
     gContact = dv;
     gW = w;
@@ -254,9 +313,10 @@ vec3 surfaceColor(vec3 sp, float t) {
 
     // veins
     float h = gVeinId;
-    vec3 clayVein = h < 0.33 ? vec3(1.0, 0.55, 0.82) : (h < 0.66 ? vec3(0.55, 1.0, 0.85) : vec3(0.95, 0.9, 1.0));
-    vec3 coralVein = h < 0.5 ? vec3(1.0, 0.45, 0.1) : vec3(0.35, 1.0, 0.3);
-    vec3 fleshVein = h < 0.5 ? vec3(0.25, 0.2, 0.95) : vec3(0.85, 0.05, 0.15);
+    // veins: colors opposite the walls on the color wheel so they pop
+    vec3 clayVein = h < 0.33 ? vec3(1.0, 0.85, 0.15) : (h < 0.66 ? vec3(1.0, 0.45, 0.1) : vec3(1.0, 0.97, 0.85));   // gold / orange / cream on purple-teal
+    vec3 coralVein = h < 0.5 ? vec3(0.1, 0.95, 1.0) : vec3(0.95, 1.0, 0.9);                                       // cyan / white on purple-red-green
+    vec3 fleshVein = h < 0.5 ? vec3(0.1, 0.55, 1.0) : vec3(0.7, 1.0, 0.25);                                       // electric blue / lime on crimson
 
     vec3 wall = clayWall * gW.x + coralWall * gW.y + fleshWall * gW.z;
     vec3 vein = clayVein * gW.x + coralVein * gW.y + fleshVein * gW.z;
@@ -302,6 +362,7 @@ vec4 renderTunnel() {
         float ao = calcAO(pos, n);
         map(pos); // refresh material globals for this point
         float vein = gVein;
+        float bub = vein * gBubble;
         vec3 w = gW;
 
         vec2 q = pos.xy - tunnelPath(pos.z);
@@ -315,7 +376,9 @@ vec4 renderTunnel() {
         float fres = pow(1.0 - ndv, 2.0);
         float film = 1.6 * (1.0 - ndv) + 1.4 * vnoise(sp * 0.7 + vec3(0.0, 0.0, gT * 0.15)) + gT * 0.05;
         vec3 iri = 0.5 + 0.5 * cos(kTAU * (film + vec3(0.0, 0.33, 0.67)));
-        alb = mix(alb, alb * 0.6 + iri * 0.65, sheen * (0.15 + 0.85 * fres));
+        float tube = vein * (1.0 - gBubble);         // vein tubes keep their own colors; bubbles take the film
+        alb = mix(alb, alb * 0.6 + iri * 0.65, sheen * (0.15 + 0.85 * fres) * (1.0 - 0.85 * tube));
+        alb *= 1.0 - 0.75 * bub;                     // bubble bodies read as see-through
 
         vec3 L = normalize(ro - pos);
         float wrap = clamp((dot(n, L) + 0.4) / 1.4, 0.0, 1.0);
@@ -327,9 +390,11 @@ vec4 renderTunnel() {
         col = alb * (0.12 + 1.15 * wrap) * ao;
         col += alb * rim * 0.45;
         col += alb * pow(1.0 - ndv, 1.5) * 0.5 * w.y * (1.0 - vein);   // velvet sheen on coral
-        col += alb * vein * 0.25;                                       // soft subsurface glow
+        col += alb * tube * 0.3;                                        // self-glow so veins read even in shadow
+        col *= mix(1.0, 0.4 + 0.6 * ndv, tube);                      // darker silhouettes keep them round and outlined
         col += vec3(0.9, 0.1, 0.15) * (1.0 - gRidge) * 0.25 * w.z * ao; // blood glow in flesh folds
         col += spec * mix(vec3(1.0), iri, sheen * 0.8);
+        col += bub * (iri * (0.15 + 1.4 * fres) + spec * 1.5);   // soap-film rim + glint
         col *= atten;
         col += alb * vein * gBass * 0.6 * audio_react * atten;
 

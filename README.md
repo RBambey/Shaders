@@ -4,7 +4,7 @@ GLSL scenes for [Synesthesia](https://synesthesia.live), each with a standalone 
 
 | Scene | Description |
 |---|---|
-| [Glimpse Before Death](GlimpseBeforeDeath/) | Flying down a twisting organic tunnel that cycles through clay, coral and flesh under an oil-slick sheen, with growing veins. Audio-reactive. |
+| [Glimpse Before Death](GlimpseBeforeDeath/) ([live preview](https://rbambey.github.io/Shaders/GlimpseBeforeDeath/preview.html)) | Flying down a twisting organic tunnel that cycles through clay, coral and flesh under an oil-slick sheen, with growing veins. Audio-reactive. |
 
 ## Layout
 
