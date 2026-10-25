@@ -1,0 +1,102 @@
+{
+	"CONTROLS" : [
+		{
+			"NAME" : "speed",
+			"TYPE" : "slider",
+			"DEFAULT" : 1.2,
+			"MIN" : 0.0,
+			"MAX" : 4.0,
+			"UI_GROUP" : "motion",
+			"DESCRIPTION" : "Forward flight speed down the tunnel."
+		},
+		{
+			"NAME" : "twist",
+			"TYPE" : "slider",
+			"DEFAULT" : 1.0,
+			"MIN" : 0.0,
+			"MAX" : 2.0,
+			"UI_GROUP" : "motion",
+			"DESCRIPTION" : "How hard the tunnel bends and turns. 0 = straight."
+		},
+		{
+			"NAME" : "tunnel_radius",
+			"TYPE" : "slider",
+			"DEFAULT" : 1.5,
+			"MIN" : 1.0,
+			"MAX" : 2.5,
+			"UI_GROUP" : "shape",
+			"DESCRIPTION" : "Width of the tunnel."
+		},
+		{
+			"NAME" : "vein_density",
+			"TYPE" : "slider",
+			"DEFAULT" : 10.0,
+			"MIN" : 3.0,
+			"MAX" : 20.0,
+			"UI_GROUP" : "veins",
+			"DESCRIPTION" : "Number of veins around the tunnel wall."
+		},
+		{
+			"NAME" : "vein_growth_speed",
+			"TYPE" : "slider",
+			"DEFAULT" : 1.0,
+			"MIN" : 0.0,
+			"MAX" : 4.0,
+			"UI_GROUP" : "veins",
+			"DESCRIPTION" : "How fast veins grow, shrink away and respawn."
+		},
+		{
+			"NAME" : "sheen",
+			"TYPE" : "slider",
+			"DEFAULT" : 0.6,
+			"MIN" : 0.0,
+			"MAX" : 1.0,
+			"UI_GROUP" : "look",
+			"DESCRIPTION" : "Strength of the oil-slick rainbow film over every surface."
+		},
+		{
+			"NAME" : "hue_drift",
+			"TYPE" : "slider",
+			"DEFAULT" : 0.5,
+			"MIN" : 0.0,
+			"MAX" : 4.0,
+			"UI_GROUP" : "look",
+			"DESCRIPTION" : "Speed at which the whole palette rotates through hues. 0 = fixed colors."
+		},
+		{
+			"NAME" : "hue_shift",
+			"TYPE" : "slider",
+			"DEFAULT" : 0.0,
+			"MIN" : 0.0,
+			"MAX" : 1.0,
+			"UI_GROUP" : "look",
+			"DESCRIPTION" : "Manual hue offset for the whole palette."
+		},
+		{
+			"NAME" : "audio_react",
+			"TYPE" : "slider",
+			"DEFAULT" : 1.0,
+			"MIN" : 0.0,
+			"MAX" : 1.0,
+			"UI_GROUP" : "audio",
+			"DESCRIPTION" : "How much bass (speed surges, vein pulse, heartbeat) and highs (sparkle) drive the scene."
+		}
+	],
+	"CREDIT" : "Custom Scene",
+	"DESCRIPTION" : "Flying down a twisting organic tunnel that cycles through pitted clay, fuzzy coral and wet flesh under an oil-slick sheen, with veins that grow, writhe and respawn. Bass surges the camera and pulses the veins and heartbeat; highs sparkle.",
+	"GPU" : 0,
+	"HEIGHT" : 1080,
+	"IMAGE_PATH" : "thumbnail.png",
+	"PASSES" : [
+		{
+			"TARGET" : "tunnelBuf",
+			"WIDTH" : 960,
+			"HEIGHT" : 540,
+			"FLOAT" : true,
+			"FILTER" : "linear",
+			"WRAP" : "repeat"
+		}
+	],
+	"TITLE" : "Glimpse Before Death",
+	"WIDTH" : 1920
+}
