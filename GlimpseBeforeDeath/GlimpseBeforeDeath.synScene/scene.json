@@ -97,11 +97,11 @@
 			"MIN" : 0.0,
 			"MAX" : 1.0,
 			"UI_GROUP" : "audio",
-			"DESCRIPTION" : "How much bass (speed surges, vein pulse, heartbeat) and highs (sparkle) drive the scene."
+			"DESCRIPTION" : "How strongly the music drives the veins and bubbles: bass hits send pulses racing down the tunnel, highs make them sparkle. The walls and camera ignore the audio."
 		}
 	],
 	"CREDIT" : "Custom Scene",
-	"DESCRIPTION" : "Flying down a twisting organic tunnel that cycles through pitted clay, fuzzy coral and wet flesh under an oil-slick sheen, with veins that grow, writhe and respawn. Bass surges the camera and pulses the veins and heartbeat; highs sparkle.",
+	"DESCRIPTION" : "Flying down a twisting organic tunnel that cycles through pitted clay, fuzzy coral, wet flesh and stones overgrown with vines and flowers under an oil-slick sheen, with veins that grow, writhe and respawn. Bass hits send pulses racing down the veins and bubbles; highs make them sparkle.",
 	"GPU" : 0,
 	"HEIGHT" : 1080,
 	"IMAGE_PATH" : "thumbnail.png",

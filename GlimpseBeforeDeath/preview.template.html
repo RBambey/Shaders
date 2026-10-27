@@ -40,6 +40,10 @@
 </div>
 <pre id="err"></pre>
 
+<script id="scene-script" type="text/plain">
+/*__SCRIPT_JS__*/
+</script>
+
 <script id="main-glsl" type="x-shader/x-fragment">
 /*__MAIN_GLSL__*/
 </script>
@@ -48,6 +52,16 @@
 // Mirrors GlimpseBeforeDeath.synScene/scene.json
 const CONTROLS = /*__CONTROLS__*/;
 const PASSES = /*__PASSES__*/;
+
+// The scene's script.js (Synesthesia scripting), run the way Synesthesia does: scene uniforms are
+// globals (e.g. syn_BassLevel) and setUniform(name, value) creates a float uniform for the shader.
+const scriptSrc = document.getElementById('scene-script').textContent;
+const SCRIPT_UNIFORMS = [...new Set([...scriptSrc.matchAll(/setUniform\(\s*["'](\w+)["']/g)].map(m => m[1]))];
+const uniforms = {};
+window.setUniform = (name, x) => { uniforms[name] = x; };
+const sceneScript = new Function(scriptSrc +
+  '\n;return { setup: typeof setup === "function" ? setup : null, update: typeof update === "function" ? update : null };')();
+if (sceneScript.setup) sceneScript.setup();
 
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -62,10 +76,10 @@ uniform float TIME;
 uniform vec2 RENDERSIZE;
 uniform float syn_BassLevel;
 uniform float syn_HighLevel;
-uniform float syn_BassTime;
 uniform int PASSINDEX;
 ${PASSES.map(p => `uniform sampler2D ${p.TARGET};`).join('\n')}
 ${CONTROLS.map(c => `uniform float ${c.NAME};`).join('\n')}
+${SCRIPT_UNIFORMS.map(n => `uniform float ${n};`).join('\n')}
 out vec4 fragColor;
 #line 1
 `;
@@ -173,7 +187,7 @@ if (params.get('ui') === '0') document.getElementById('panel').classList.add('hi
 
 // ---- loop. ?t=SECONDS freezes time at that moment (sliders still update).
 const fixedT = params.has('t') ? parseFloat(params.get('t')) : null;
-let time = 0, bassTime = 0, last = performance.now(), frames = 0, fpsT = last;
+let time = 0, last = performance.now(), frames = 0, fpsT = last;
 const fpsEl = document.getElementById('fps');
 
 function fakeAudio(t) {
@@ -190,14 +204,15 @@ function frame(now) {
   if (!paused) time += dt;
   let t = fixedT ?? time;
   const a = fakeAudio(t);
-  if (fixedT !== null) bassTime = fixedT;
-  else if (!paused) bassTime += dt * (0.6 + 1.6 * a.bass);   // like syn_BassTime: runs faster on bass
+  window.syn_BassLevel = a.bass;
+  window.syn_HighLevel = a.high;
+  if (sceneScript.update && !paused && fixedT === null) sceneScript.update(dt);
 
   gl.uniform1f(U('TIME'), t);
   gl.uniform1f(U('syn_BassLevel'), a.bass);
   gl.uniform1f(U('syn_HighLevel'), a.high);
-  gl.uniform1f(U('syn_BassTime'), bassTime);
   for (const c of CONTROLS) gl.uniform1f(U(c.NAME), values[c.NAME]);
+  for (const n of SCRIPT_UNIFORMS) gl.uniform1f(U(n), uniforms[n] ?? 0);
 
   PASSES.forEach((p, i) => {
     const [w, h] = passSize(p);
@@ -227,6 +242,16 @@ function frame(now) {
   if (bench) return;
   if (fixedT !== null) document.title = 'READY';
   requestAnimationFrame(frame);
+}
+
+// with ?t= frozen time, run the script up to that moment so its state (e.g. pulses) matches
+if (fixedT !== null && sceneScript.update) {
+  for (let ts = 0; ts < fixedT; ts += 1 / 60) {
+    const a = fakeAudio(ts);
+    window.syn_BassLevel = a.bass;
+    window.syn_HighLevel = a.high;
+    sceneScript.update(1 / 60);
+  }
 }
 
 // ?bench=N renders N frames back-to-back and reports the average frame time in the title
