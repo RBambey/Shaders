@@ -2,10 +2,11 @@
 // automatically through four looks (pitted clay -> fuzzy coral -> wet flesh -> stones,
 // vines and flowers), all under a drifting oil-slick sheen.
 //
-// Synesthesia inputs: TIME, RENDERSIZE, syn_HighLevel
+// Synesthesia inputs: TIME, RENDERSIZE, syn_HighLevel, syn_Media (faces on the mannequin heads)
 // From script.js (bass-hit detector): pulse_age0..3, pulse_amp0..3
 // Controls (scene.json): speed, twist, tunnel_radius, vein_density,
-//   vein_growth_speed, bubbles, bubble_rate, sheen, hue_drift, hue_shift, audio_react
+//   vein_growth_speed, bubbles, bubble_rate, heads, head_rate, head_spin, sheen, hue_drift,
+//   hue_shift, audio_react
 
 const float kTAU = 6.28318530718;
 
@@ -29,11 +30,16 @@ float gPetal;   // flower petal material at this point (0..1)
 float gCenter;  // flower centre material at this point (0..1)
 float gFlowerId;
 float gPetalRho; // 0 at the flower's centre, 1 at the petal tips
+float gHead;    // mannequin head material at this point (0..1)
+vec2 gHeadUV;   // where on the face media this point lands
+float gHeadFace; // 0 = plain mannequin, 1 = face media
 vec4 gW;        // look weights at this point: x = clay, y = coral, z = flesh, w = floral
 
-// flowerSDF scratch outputs
+// flowerSDF / headSDF scratch outputs
 float gFCtr;
 float gFRho;
+vec2 gHUV;
+float gHMask;
 
 // ---------------------------------------------------------------- noise
 
@@ -223,11 +229,51 @@ float flowerSDF(vec3 lp, float R, float hb) {
     return min(dPet, dCtr) * 0.8;                      // the petal outline isn't an exact distance
 }
 
+// A mannequin head on a neck, rising out of the wall and spinning about the neck.
+// The head's shape is Blender's 'Head (Sculpting) - Realistic', baked by blender/bake_head.py into
+// head_radius: for each direction from the middle of the head, how far out the surface is.
+// lp: x = across the wall, y = up from the wall towards the axis, z = along the tunnel.
+const float kHeadLift = 2.0;                           // head centre height above the wall (head units)
+
+float headRadius(vec3 dir) {
+    float u = atan(dir.x, dir.z) / kTAU + 0.5;         // 0.5 = straight ahead (the face)
+    float v = 1.0 - acos(clamp(dir.y, -1.0, 1.0)) / 3.14159265;
+    vec2 rg = textureLod(head_radius, vec2(u, v), 0.0).rg;
+    return (rg.r * 255.0 + rg.g) / 255.0 * 1.6;        // unpack 16 bits over R + G
+}
+
+float headSDF(vec3 lp, float R, float hb) {
+    R = max(R, 1e-3);
+    float dir = hb > 0.8 ? -1.0 : 1.0;
+    float ang = gT * head_spin * (0.8 + 0.6 * hb) * dir + hb * kTAU;
+    float c = cos(ang);
+    float sn = sin(ang);
+    // head units: 1 = half the crown-to-chin height; the face looks along +z
+    vec3 q = vec3(c * lp.x - sn * lp.z, lp.y - kHeadLift * R, sn * lp.x + c * lp.z) / R;
+    float rho = length(q);
+    float dHead = (rho - headRadius(q / max(rho, 1e-4))) * 0.5;   // radial map: step carefully
+    float dNeck = max(length(q.xz) - 0.45, q.y + 0.9);            // runs on down into the wall
+    // face: the media is projected straight onto the front, lined up with the sculpt's eyes
+    // (eyes at x = +-0.28, y = 0.02; a portrait cropped like media/face.jpg has them 39% of
+    // the width apart, 40% down from the top)
+    gHUV = vec2(0.515 + q.x / 1.43, 0.6 + (q.y - 0.02) / 1.735);
+    float front = smoothstep(0.1, 0.5, q.z);
+    float oval = 1.0 - smoothstep(0.75, 1.0, length((gHUV - 0.5) * 2.0));
+    gHMask = front * oval;
+    return smin(dHead, dNeck, 0.15) * R;
+}
+
 // One layer of writhing veins lying on the wall, growing along z and respawning.
 // 0 = veins, 1 = bubbles. The change sweeps down the tunnel as a wave, each vein slightly out of step.
 float bubbleAmount(float z, float h) {
     float ph = gT * bubble_rate * 0.05 + z * 0.015 + h * 0.15;
     return bubbles * smoothstep(0.35, 0.65, 0.5 + 0.5 * sin(ph * kTAU));
+}
+
+// 0 = veins, 1 = mannequin heads. A slower wave of its own, so heads come and go between bubble waves.
+float headAmount(float z, float h) {
+    float ph = gT * head_rate * 0.03 + z * 0.01 + h * 0.1 + 0.37;
+    return heads * smoothstep(0.55, 0.8, 0.5 + 0.5 * sin(ph * kTAU));
 }
 
 // Growth: each vein is split into segments of length kSegLen that grow from their start, then shrink away.
@@ -242,14 +288,16 @@ vec3 veinSegment(float zs, float idw, float seed) {
 }
 
 // fw = floral weight: veins straighten into green stems and their beads bloom into flowers.
-// vmat = (bubble amount, petal material, centre material, flower id); vrho = position across the petals.
+// vmat = (bubble amount, petal material, centre material, flower id); vrho = position across the petals;
+// vhead = (head material, face uv, face mask).
 float veinLayer(float r, float a, float z, float wallR, float N, float spiral, float seed, float fw, float pulse,
-                out float vid, out vec4 vmat, out float vrho) {
+                out float vid, out vec4 vmat, out float vrho, out vec4 vhead) {
     float s = a / kTAU * N + z * spiral;
     float idw = mod(floor(s), N);
     float h = vhash11(idw * 17.31 + seed);
     float cellW = kTAU * wallR / N;
-    float wobAmt = 1.0 - 0.6 * fw;                  // stems are straighter, leaving room for flowers
+    float hw = headAmount(z, h);
+    float wobAmt = 1.0 - 0.6 * max(fw, hw);         // stems are straighter, leaving room for flowers and heads
 
     float wob = (0.28 * sin(z * (0.9 + 0.8 * h) + gT * (0.6 + h) + h * kTAU)
                + 0.08 * sin(z * 3.1 - gT * 1.3 + h * 20.0)) * wobAmt;
@@ -275,14 +323,17 @@ float veinLayer(float r, float a, float z, float wallR, float N, float spiral, f
     // tube radius goes slightly negative at full bubble so no zero-width line is left behind;
     // floral stems are thinner than veins
     float tubeR = rv * mix(1.0, 0.45, fw);
-    float d = length(vec3(du, dr, dz)) - (tubeR * (1.0 - bub) - 0.01 * bub);
+    float gone = max(bub, hw);                       // bubbles and heads replace the vein itself
+    float d = length(vec3(du, dr, dz)) - (tubeR * (1.0 - gone) - 0.01 * gone);
 
     vid = h;
     vmat = vec4(bub, 0.0, 0.0, 0.0);
     vrho = 0.0;
+    vhead = vec4(0.0);
 
-    // beads appear when the bubble wave passes, and always in the floral look (as flowers)
-    float beads = max(bub, fw);
+    // beads appear when the bubble wave passes, always in the floral look (as flowers),
+    // and as mannequin heads when the head wave passes
+    float beads = max(max(bub, fw), hw);
     if (beads > 0.001) {
         const float S = 0.34;                       // bead spacing
         float laneAng = kTAU / N;
@@ -295,6 +346,7 @@ float veinLayer(float r, float a, float z, float wallR, float N, float spiral, f
         float bestCtr = 0.0;
         float bestId = 0.0;
         float bestRho = 0.0;
+        vec3 bestHead = vec3(0.0);
         for (int k = 0; k < 2; k++) {
             float bk = bi + (k == 0 ? 0.0 : nb);
             float hb = vhash21(vec2(idw * 3.1 + seed, bk));
@@ -304,19 +356,21 @@ float veinLayer(float r, float a, float z, float wallR, float N, float spiral, f
             float wobC = (0.28 * sin(zC * (0.9 + 0.8 * h) + gT * (0.6 + h) + h * kTAU)
                         + 0.08 * sin(zC * 3.1 - gT * 1.3 + h * 20.0)) * wobAmt;
             float liftC = 0.25 * pow(max(0.0, sin(zC * 0.7 + h * 13.0 + gT * 0.4)), 2.0) * step(0.5, h);
-            float drift = bub * (0.05 + 0.35 * hb);
+            float drift = bub * (0.05 + 0.35 * hb) * (1.0 - hw);   // heads stay rooted
             // lateral distance as true arc length at this radius (bubbles float inward, where
             // measuring along the wall would stretch them sideways)
             float duC = (fract(s) - 0.5 - wobC - zc * spiral) * laneAng * r;
             // a bead exists where the grown vein covers its centre (looked up in the centre's own segment);
             // not every bead becomes a flower
             vec3 sc = veinSegment(zs - zc, idw, seed);
-            float onVein = step(0.5, sc.x) * step(sc.x, sc.y) * mix(1.0, step(0.25, hb), fw);
-            float size = mix(0.06 + 0.08 * hb, 0.1 + 0.1 * hb, fw);
-            float rb = size * sc.z * onVein * (1.0 + 0.6 * pulse);
+            float onVein = step(0.5, sc.x) * step(sc.x, sc.y)
+                         // heads: only on every other bead slot, so neighbours never spin into each other
+                         * mix(mix(1.0, step(0.25, hb), fw), step(0.72, hb) * step(0.5, fract(bk * 0.5)), hw);
+            float size = mix(mix(0.06 + 0.08 * hb, 0.1 + 0.1 * hb, fw), 0.14 + 0.04 * hb, hw);
+            float rb = size * sc.z * onVein * (1.0 + 0.6 * pulse * (1.0 - 0.7 * hw));
             // stay inside this vein's lane and bead cell (flowers may overlap their neighbours)
             float rc = wallR - 0.14 - liftC - drift;
-            rb = min(rb, min((0.5 - abs(wobC)) * laneAng * rc, mix(0.5, 0.9, fw) * S) - 0.01);
+            rb = min(rb, min((0.5 - abs(wobC)) * laneAng * rc, mix(mix(0.5, 0.9, fw), 0.9, hw) * S) - 0.01);
             rb *= smoothstep(0.0, 0.6, beads);
             rb *= mix(1.0, smoothstep(0.02, 0.05, rb), fw);   // no flower crumbs where a vein is fading out
             // spheres rest on the wall; flowers sit flat against it
@@ -333,17 +387,32 @@ float veinLayer(float r, float a, float z, float wallR, float N, float spiral, f
                 ctr = gFCtr;
                 rho = gFRho;
             }
+            vec3 headMat = vec3(0.0);
+            if (hw > 0.001) {
+                vec3 hp = vec3(duC, (wallR - liftC * (1.0 - hw)) - r, zc);
+                // the head and neck fit in a capsule up the neck axis: only shape them when we're close
+                float dCap = length(vec3(hp.x, hp.y - clamp(hp.y, -0.5 * rb, kHeadLift * rb), hp.z)) - 1.4 * rb;
+                float dHead = dCap;
+                if (dCap < 0.03) {
+                    dHead = headSDF(hp, rb, hb);
+                    headMat = vec3(gHUV, gHMask);
+                }
+                dB = mix(dB, dHead, hw);
+            }
             dB += 0.05 * (1.0 - smoothstep(0.0, 0.02, rb));   // empty bead slots can't be hit as specks
             if (dB < dBeads) {
                 dBeads = dB;
                 bestCtr = ctr;
                 bestId = hb;
                 bestRho = rho;
+                bestHead = headMat;
             }
         }
-        float onBead = dBeads < d ? fw : 0.0;
-        vmat = vec4(bub, onBead * (1.0 - bestCtr), onBead * bestCtr, bestId);
+        float onBead = dBeads < d ? 1.0 : 0.0;
+        float flowerOn = onBead * fw * (1.0 - hw);
+        vmat = vec4(bub, flowerOn * (1.0 - bestCtr), flowerOn * bestCtr, bestId);
         vrho = bestRho;
+        vhead = vec4(onBead * hw, bestHead);
         d = smin(d, dBeads, 0.03);
     }
 
@@ -376,10 +445,10 @@ float map(vec3 p) {
     // in coral mode they ride on top of the bumps instead of being swallowed
     float veinR = R - dot(w, vec4(0.12, 0.3, 0.16, 0.2));
     float id1, id2, rho1, rho2;
-    vec4 m1, m2;
+    vec4 m1, m2, hd1, hd2;
     float pulse = veinPulse(p.z);
-    float v1 = veinLayer(r, a, p.z, veinR, floor(vein_density), 0.05, 1.0, w.w, pulse, id1, m1, rho1);
-    float v2 = veinLayer(r, a, p.z, veinR, floor(vein_density * 0.7) + 2.0, -0.11, 5.0, w.w, pulse, id2, m2, rho2);
+    float v1 = veinLayer(r, a, p.z, veinR, floor(vein_density), 0.05, 1.0, w.w, pulse, id1, m1, rho1, hd1);
+    float v2 = veinLayer(r, a, p.z, veinR, floor(vein_density * 0.7) + 2.0, -0.11, 5.0, w.w, pulse, id2, m2, rho2, hd2);
     float dv = smin(v1, v2, 0.04);   // overlapping bubbles / crossing veins fuse instead of seaming
 
     bool first = v1 < v2;
@@ -390,6 +459,10 @@ float map(vec3 p) {
     gCenter = vm.z;
     gFlowerId = vm.w;
     gPetalRho = first ? rho1 : rho2;
+    vec4 hd = first ? hd1 : hd2;
+    gHead = hd.x;
+    gHeadUV = hd.yz;
+    gHeadFace = hd.w;
     gPulse = pulse;
     gVein = clamp(0.5 + 0.5 * (dWall - dv) / 0.006, 0.0, 1.0);
     gContact = dv;
@@ -486,6 +559,18 @@ vec3 surfaceColor(vec3 sp, float t) {
         vein = mix(vein, petal, gPetal);
         vein = mix(vein, centre, gCenter);
     }
+
+    // mannequin heads: blonde yellow, with the media as the face. Both are pre-rotated against
+    // the scene's hue drift so they keep their real colors after the final grade.
+    if (gHead > 0.001) {
+        vec3 head = vec3(0.95, 0.78, 0.36);
+        if (_isMediaActive()) {
+            vec3 face = textureLod(syn_Media, clamp(gHeadUV, 0.0, 1.0), 0.0).rgb;
+            head = mix(head, face, gHeadFace);
+        }
+        head = hueRotate(head, -(hue_shift + gT * 0.02 * hue_drift) * kTAU);
+        vein = mix(vein, head, gHead);
+    }
     return mix(wall, vein, gVein);
 }
 
@@ -510,7 +595,7 @@ vec4 renderTunnel() {
 
     float t = 0.05;
     const float kFar = 24.0;   // walls are faded to black by here anyway
-    for (int i = 0; i < 72; i++) {
+    for (int i = 0; i < 110; i++) {
         float d = map(ro + rd * t);
         if (d < 0.0012 * t) break;
         // far away the fine detail is faded out, so the field is smoother and we can stride further
@@ -527,8 +612,8 @@ vec4 renderTunnel() {
         float ao = calcAO(pos, n);
         map(pos); // refresh material globals for this point
         float vein = gVein;
-        float flower = clamp(gPetal + gCenter, 0.0, 1.0);
-        float bub = vein * gBubble * (1.0 - flower);     // soap-bubble look (floating flowers stay flowers)
+        float flower = clamp(gPetal + gCenter + gHead, 0.0, 1.0);
+        float bub = vein * gBubble * (1.0 - flower);     // soap-bubble look (flowers and heads keep their own)
         vec4 w = gW;
 
         vec2 q = pos.xy - tunnelPath(pos.z);

@@ -1,2 +1,6 @@
 .DS_Store
 __pycache__/
+
+# personal media and previews built with it stay local (repo + preview site are public)
+media/
+preview.local.html

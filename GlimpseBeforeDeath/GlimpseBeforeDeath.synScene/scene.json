@@ -64,6 +64,33 @@
 			"UI_GROUP" : "veins"
 		},
 		{
+			"DEFAULT" : 1.0,
+			"DESCRIPTION" : "How far veins turn into spinning mannequin heads when the head wave passes. 0 = never. Select media to put a face on them.",
+			"MAX" : 1.0,
+			"MIN" : 0.0,
+			"NAME" : "heads",
+			"TYPE" : "slider",
+			"UI_GROUP" : "heads"
+		},
+		{
+			"DEFAULT" : 1.0,
+			"DESCRIPTION" : "How often the head wave comes around (1 = about every 30 s).",
+			"MAX" : 4.0,
+			"MIN" : 0.0,
+			"NAME" : "head_rate",
+			"TYPE" : "slider",
+			"UI_GROUP" : "heads"
+		},
+		{
+			"DEFAULT" : 1.0,
+			"DESCRIPTION" : "How fast the heads spin.",
+			"MAX" : 4.0,
+			"MIN" : 0.0,
+			"NAME" : "head_spin",
+			"TYPE" : "slider",
+			"UI_GROUP" : "heads"
+		},
+		{
 			"NAME" : "sheen",
 			"TYPE" : "slider",
 			"DEFAULT" : 0.6,
@@ -116,5 +143,17 @@
 		}
 	],
 	"TITLE" : "Glimpse Before Death",
-	"WIDTH" : 1920
+	"WIDTH" : 1920,
+	"MEDIA" : [
+		{
+			"WRAP" : "clamp",
+			"FILTER" : "linear"
+		}
+	],
+	"IMAGES" : [
+		{
+			"NAME" : "head_radius",
+			"PATH" : "images/head_radius.png"
+		}
+	]
 }

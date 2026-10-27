@@ -11,7 +11,7 @@ The camera flies down a raymarched tunnel that twists and turns at random. The w
 - wet, heartbeat-pulsing flesh
 - floral: cobblestones with leafy vines, where the veins become stems lined with flowers
 
-Veins grow, writhe and respawn along the walls. Every so often a wave sweeps down the tunnel and turns them into strings of soap bubbles, which drift off the wall and then melt back into veins. In the floral look the flowers float off instead. An oil-slick thin-film sheen and a slow hue drift cover everything.
+Veins grow, writhe and respawn along the walls. Every so often a wave sweeps down the tunnel and turns them into strings of soap bubbles, which drift off the wall and then melt back into veins. In the floral look the flowers float off instead. Another, slower wave replaces the veins with spinning mannequin heads that rise out of the walls. The selected media is mapped onto their faces. An oil-slick thin-film sheen and a slow hue drift cover everything.
 
 ## Audio
 
@@ -35,6 +35,9 @@ Only the veins and bubbles (and flowers) react to the music. The walls and the c
 | `vein_growth_speed` | How fast veins grow, shrink and respawn |
 | `bubbles` | How far veins turn into bubbles when the wave passes (0 = never) |
 | `bubble_rate` | How often the bubble wave comes around (1 = about every 20 s) |
+| `heads` | How far veins turn into mannequin heads when the head wave passes (0 = never) |
+| `head_rate` | How often the head wave comes around (1 = about every 30 s) |
+| `head_spin` | How fast the heads spin |
 | `sheen` | Strength of the oil-slick film |
 | `hue_drift` | Speed of the palette's hue rotation (0 = fixed colors) |
 | `hue_shift` | Manual hue offset |
@@ -45,6 +48,31 @@ Only the veins and bubbles (and flowers) react to the music. The walls and the c
 The raymarch renders into a 960×540 buffer (`tunnelBuf`, the first pass). The final pass upscales it with a light sharpen. On an M1 Pro at 1080p output this runs at roughly 50–85 fps in Chrome. It drops to about 35–45 fps while the veins are bubbles, and to about 25–30 fps in the floral look. Set `bubbles` to 0 to avoid the bubble cost.
 
 To trade quality for speed, change `WIDTH`/`HEIGHT` under `PASSES` in `scene.json`. For example, 1280×720 is sharper and 640×360 is faster.
+
+## Media (faces on the heads)
+
+The heads use Synesthesia's media input (`syn_Media`) as their face. They show plain mannequins when no media is selected. A portrait cropped to the face, about 5:6, maps best: the media fills the front of the head with a soft oval edge.
+
+The preview has a **Load face…** button, or you can drop an image on the page. It stays in that browser only and is never uploaded. To build a local preview with an image built in, run:
+
+```
+python3 build_preview.py --media media/face.jpg --out preview.local.html
+```
+
+`media/` and `preview.local.html` are in `.gitignore`. This repo and its preview site are public, so personal photos stay on your machine.
+
+## Mannequin head shape
+
+The heads are Blender Studio's **Head (Sculpting) – Realistic** from the free (CC0) *Human Base Meshes* bundle. `blender/bake_head.py` bakes it into `GlimpseBeforeDeath.synScene/images/head_radius.png`. That image records, for every direction from the middle of the head, how far out the surface is. The shader's `headSDF()` reads it through the scene's `IMAGES` entry. The eyes are closed and smooth, and the ears are dropped.
+
+To re-bake, for example after sculpting changes, run:
+
+```
+/Applications/Blender.app/Contents/MacOS/Blender -b path/to/human_base_meshes_bundle.blend \
+    --python blender/bake_head.py -- --out GlimpseBeforeDeath.synScene/images/head_radius.png
+```
+
+The face media is lined up with the sculpt's eyes. A portrait cropped with the eyes about 40% down from the top, and about 39% of the image width apart, fits best.
 
 ## Editing
 

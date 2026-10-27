@@ -36,6 +36,10 @@
   <label>bass level <span class="val" id="v_bass">0.00</span><input type="range" id="bass" min="0" max="1" step="0.01" value="0"></label>
   <label>high level <span class="val" id="v_high">0.00</span><input type="range" id="high" min="0" max="1" step="0.01" value="0"></label>
   <div class="row"><input type="checkbox" id="beat" checked><span>fake 120 BPM kick + hats</span></div>
+  <h3>Media</h3>
+  <div class="row"><button id="mediaBtn">Load face…</button><button id="mediaClear">Clear</button><span id="mediaName"></span></div>
+  <input type="file" id="mediaFile" accept="image/*" hidden>
+  <div class="hint">Or drop an image on the page. It stays in this browser only.</div>
   <div class="hint">H hides this panel · Space pauses</div>
 </div>
 <pre id="err"></pre>
@@ -52,6 +56,9 @@
 // Mirrors GlimpseBeforeDeath.synScene/scene.json
 const CONTROLS = /*__CONTROLS__*/;
 const PASSES = /*__PASSES__*/;
+const EMBEDDED_MEDIA = /*__MEDIA__*/null;
+// scene.json IMAGES, embedded by build_preview.py as {NAME, DATA} (pages opened from disk can't load files into WebGL)
+const IMAGES = /*__IMAGES__*/[];
 
 // The scene's script.js (Synesthesia scripting), run the way Synesthesia does: scene uniforms are
 // globals (e.g. syn_BassLevel) and setUniform(name, value) creates a float uniform for the shader.
@@ -77,6 +84,10 @@ uniform vec2 RENDERSIZE;
 uniform float syn_BassLevel;
 uniform float syn_HighLevel;
 uniform int PASSINDEX;
+uniform sampler2D syn_Media;
+${IMAGES.map(im => `uniform sampler2D ${im.NAME};`).join('\n')}
+uniform float preview_mediaActive;
+bool _isMediaActive() { return preview_mediaActive > 0.5; }
 ${PASSES.map(p => `uniform sampler2D ${p.TARGET};`).join('\n')}
 ${CONTROLS.map(c => `uniform float ${c.NAME};`).join('\n')}
 ${SCRIPT_UNIFORMS.map(n => `uniform float ${n};`).join('\n')}
@@ -165,6 +176,76 @@ const passTargets = PASSES.map((p, i) => {
   gl.uniform1i(U(p.TARGET), i);
   return { tex, fbo, w: 0, h: 0 };
 });
+// ---- media (Synesthesia's syn_Media). Loaded from a file or drop; kept in localStorage, never uploaded.
+const MEDIA_UNIT = PASSES.length;
+const mediaTex = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0 + MEDIA_UNIT);
+gl.bindTexture(gl.TEXTURE_2D, mediaTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.uniform1i(U('syn_Media'), MEDIA_UNIT);
+let mediaActive = false;
+const MEDIA_KEY = 'glimpse.media';
+function setMedia(dataUrl, name, remember) {
+  const img = new Image();
+  img.onload = () => {
+    gl.activeTexture(gl.TEXTURE0 + MEDIA_UNIT);
+    gl.bindTexture(gl.TEXTURE_2D, mediaTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    mediaActive = true;
+    document.getElementById('mediaName').textContent = name;
+    if (remember) { try { localStorage.setItem(MEDIA_KEY, dataUrl); } catch (e) {} }
+  };
+  img.src = dataUrl;
+}
+function loadMediaFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => setMedia(reader.result, file.name, true);
+  reader.readAsDataURL(file);
+}
+document.getElementById('mediaBtn').onclick = () => document.getElementById('mediaFile').click();
+document.getElementById('mediaFile').onchange = e => loadMediaFile(e.target.files[0]);
+document.getElementById('mediaClear').onclick = () => {
+  mediaActive = false;
+  document.getElementById('mediaName').textContent = '';
+  try { localStorage.removeItem(MEDIA_KEY); } catch (e) {}
+};
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); loadMediaFile(e.dataTransfer.files[0]); });
+if (EMBEDDED_MEDIA) setMedia(EMBEDDED_MEDIA, 'built-in face', false);
+else { let saved = null; try { saved = localStorage.getItem(MEDIA_KEY); } catch (e) {} if (saved) setMedia(saved, 'saved image', false); }
+
+// ---- scene images (scene.json IMAGES): raw data, so no colour conversion; u wraps, v clamps
+const imageTex = IMAGES.map((im, k) => {
+  const unit = MEDIA_UNIT + 1 + k;
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(U(im.NAME), unit);
+  const img = new Image();
+  img.onload = () => {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+    gl.activeTexture(gl.TEXTURE0);
+  };
+  img.src = im.DATA;
+  return { tex, unit };
+});
+
 function passSize(p) {
   return bufModeEl.value === 'full' ? [canvas.width, canvas.height] : [p.WIDTH, p.HEIGHT];
 }
@@ -213,6 +294,11 @@ function frame(now) {
   gl.uniform1f(U('syn_HighLevel'), a.high);
   for (const c of CONTROLS) gl.uniform1f(U(c.NAME), values[c.NAME]);
   for (const n of SCRIPT_UNIFORMS) gl.uniform1f(U(n), uniforms[n] ?? 0);
+  gl.uniform1f(U('preview_mediaActive'), mediaActive ? 1 : 0);
+  gl.activeTexture(gl.TEXTURE0 + MEDIA_UNIT);
+  gl.bindTexture(gl.TEXTURE_2D, mediaTex);
+  for (const it of imageTex) { gl.activeTexture(gl.TEXTURE0 + it.unit); gl.bindTexture(gl.TEXTURE_2D, it.tex); }
+  gl.activeTexture(gl.TEXTURE0);   // buffer (re)allocation below binds on the active unit
 
   PASSES.forEach((p, i) => {
     const [w, h] = passSize(p);
