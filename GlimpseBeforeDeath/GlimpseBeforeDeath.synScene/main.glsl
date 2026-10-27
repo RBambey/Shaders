@@ -232,7 +232,7 @@ float bubbleAmount(float z, float h) {
 
 // Growth: each vein is split into segments of length kSegLen that grow from their start, then shrink away.
 // Returns (position within the segment, grown tip position, fade).
-const float kSegLen = 6.0;
+const float kSegLen = 12.0;
 vec3 veinSegment(float zs, float idw, float seed) {
     float seg = floor(zs / kSegLen);
     float phase = fract(gT * vein_growth_speed * 0.15 + vhash21(vec2(idw + seed * 7.0, seg)));
